@@ -1,0 +1,68 @@
+name: Refresh Caboira Trends and Pages
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '23 * * * *'
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: caboira-pages
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Restore last good feed if available
+        run: |
+          mkdir -p site/data
+          cp index.html site/index.html
+          for country in ES FR IT PT GB US DE MX AR; do
+            curl --fail --max-time 10 --silent "https://${{ github.repository_owner }}.github.io/Caboira/data/$country.json" -o "site/data/$country.json" || rm -f "site/data/$country.json"
+          done
+      - name: Refresh official Google RSS feeds
+        run: |
+          python3 <<'PYTHON'
+          import json, urllib.request, xml.etree.ElementTree as ET
+          from datetime import datetime, timezone
+          from pathlib import Path
+          COUNTRIES = ['ES','FR','IT','PT','GB','US','DE','MX','AR']
+          output = Path('site/data'); output.mkdir(parents=True, exist_ok=True)
+          failures = []
+          for geo in COUNTRIES:
+              source = 'https://trends.google.com/trending/rss?geo=' + geo
+              try:
+                  req = urllib.request.Request(source, headers={'User-Agent':'Caboira/1.0 RSS reader'})
+                  with urllib.request.urlopen(req, timeout=20) as r:
+                      if r.status != 200: raise RuntimeError('HTTP '+str(r.status))
+                      xml = r.read(2_000_000)
+                  root = ET.fromstring(xml)
+                  if root.tag != 'rss': raise ValueError('Not RSS')
+                  rows = []
+                  for item in root.findall('./channel/item'):
+                      title = item.findtext('title','').strip()
+                      if not title: continue
+                      traffic = next((x.text or '' for x in item if x.tag.endswith('approx_traffic')), '')
+                      rows.append({'title':title,'traffic':traffic,'date':item.findtext('pubDate','')})
+                  result = {'geo':geo,'source':source,'fetchedAt':datetime.now(timezone.utc).isoformat(),'items':rows}
+                  (output / (geo+'.json')).write_text(json.dumps(result, ensure_ascii=False), encoding='utf-8')
+              except Exception as exc:
+                  failures.append(geo + ': ' + str(exc))
+          (output/'status.json').write_text(json.dumps({'checkedAt':datetime.now(timezone.utc).isoformat(),'failures':failures}),encoding='utf-8')
+          if failures: print('Unavailable sources: '+', '.join(failures))
+          PYTHON
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+      - name: Publish Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
