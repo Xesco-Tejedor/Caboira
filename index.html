@@ -29,21 +29,36 @@ function keywordOptions(text){
   for(const word of [...extractKeywords(text),...matches.flatMap(b=>b.words)]){const key=norm(word);if(!seen.has(key)){seen.add(key);result.push(word)}}
   return result.slice(0,16);
 }
+function containsKeyword(text,word){
+  const key=norm(text),term=norm(word);
+  let at=key.indexOf(term);
+  while(at!==-1){const before=key.slice(0,at).slice(-1),after=key.slice(at+term.length,at+term.length+1);if(!/[\p{L}\p{N}]/u.test(before)&&!/[\p{L}\p{N}]/u.test(after))return true;at=key.indexOf(term,at+1)}
+  return false;
+}
 function updatePressed(){
-  document.querySelectorAll('#bridge button, #keywords button').forEach(button=>button.setAttribute('aria-pressed',String(norm(button.dataset.query||'')===norm($('query').value.trim()))));
+  document.querySelectorAll('#bridge button').forEach(button=>button.setAttribute('aria-pressed',String(norm(button.dataset.query||'')===norm($('query').value.trim()))));
+  document.querySelectorAll('#keywords button').forEach(button=>button.setAttribute('aria-pressed',String(containsKeyword($('query').value,button.dataset.query||''))));
+}
+function addKeyword(word){
+  const input=$('query'),current=input.value;
+  if(containsKeyword(current,word)){$('keyword-status').textContent='Esta palabra clave ya está en el texto. No se ha duplicado.';updatePressed();return}
+  const next=current+(!current||/\s$/.test(current)?'':' ')+word;
+  if(next.length>input.maxLength){$('keyword-status').textContent='No cabe la palabra clave: el texto admite '+input.maxLength+' caracteres. No se ha cambiado ni recortado.';return}
+  input.value=next;links();updatePressed();
+  $('keyword-status').textContent='Añadida: '+word+'. El texto anterior se mantiene; puedes editarlo.';
 }
 function renderKeywords(text){
   $('keywords').replaceChildren();
   const words=keywordOptions(text);
-  $('keyword-status').textContent=words.length?'Se actualizan al elegir un tema o escribir. Pulsa una para usarla como búsqueda; no se suman todas al catálogo.':'Escribe un tema con palabras significativas para generar sugerencias.';
-  words.forEach(word=>{const button=document.createElement('button');button.textContent=word;button.dataset.query=word;button.setAttribute('aria-pressed','false');button.onclick=()=>{$('query').value=word;links();updatePressed()};$('keywords').append(button)});
+  $('keyword-status').textContent=words.length?'Se actualizan al elegir un tema o escribir. Pulsa una para añadirla al texto actual, sin sustituirlo. No se añaden duplicados.':'Escribe un tema con palabras significativas para generar sugerencias.';
+  words.forEach(word=>{const button=document.createElement('button');button.textContent=word;button.dataset.query=word;button.setAttribute('aria-pressed','false');button.onclick=()=>addKeyword(word);$('keywords').append(button)});
   updatePressed();
 }
 function choose(t){
   $('topic').value=t;$('query').value=t;$('results').classList.toggle('hidden',!t.trim());$('chosen').textContent='Has elegido: '+t;$('bridge').replaceChildren();
   const b=bridges.find(b=>b.test.test(norm(t)));
   const p=document.createElement('p');
-  p.textContent=b?b.why+' Buscamos primero el enfoque; puedes cambiarlo o usar la frase completa.':'Las palabras clave se extraen del texto. Puedes usar una de ellas o mantener la frase completa.';
+  p.textContent=b?b.why+' Buscamos primero el enfoque; puedes cambiarlo o usar la frase completa.':'Las palabras clave se extraen del texto. Puedes añadirlas al texto sin borrar la frase completa.';
   $('bridge').append(p);
   if(b){const row=document.createElement('div');row.className='row';const opts=b.words.map(w=>[w,w]);opts.push(['Frase del tema: «'+t+'»',t]);opts.forEach(([label,val])=>{const button=document.createElement('button');button.textContent=label;button.dataset.query=val;button.onclick=()=>{$('query').value=val;links();updatePressed()};row.append(button)});$('bridge').append(row);$('query').value=b.words[0]}
   document.querySelectorAll('.topic').forEach(x=>x.setAttribute('aria-pressed',String(x.dataset.title===t)));
