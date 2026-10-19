@@ -51,7 +51,14 @@ jobs:
                       title = item.findtext('title','').strip()
                       if not title: continue
                       traffic = next((x.text or '' for x in item if x.tag.endswith('approx_traffic')), '')
-                      rows.append({'title':title,'traffic':traffic,'date':item.findtext('pubDate','')})
+                      news = []
+                      for n in item:
+                          if not n.tag.endswith('news_item'): continue
+                          nt = next(((x.text or '').strip() for x in n if x.tag.endswith('news_item_title')), '')
+                          nu = next(((x.text or '').strip() for x in n if x.tag.endswith('news_item_url')), '')
+                          ns = next(((x.text or '').strip() for x in n if x.tag.endswith('news_item_source')), '')
+                          if nt: news.append({'title':nt[:220],'source':ns[:80],'url':nu if nu.startswith('http') else ''})
+                      rows.append({'title':title,'traffic':traffic,'date':item.findtext('pubDate',''),'news':news[:3]})
                   result = {'geo':geo,'source':source,'fetchedAt':datetime.now(timezone.utc).isoformat(),'items':rows}
                   (output / (geo+'.json')).write_text(json.dumps(result, ensure_ascii=False), encoding='utf-8')
               except Exception as exc:
